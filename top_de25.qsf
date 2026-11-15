@@ -1,0 +1,112 @@
+# ============================================================================
+# Quartus Settings File (QSF) for KIT DE25 (Agilex 5 E-Series FPGA)
+# Project: Topic 22 - Sensor Digital Filter (MA & FIR)
+# ============================================================================
+
+set_global_assignment -name TOP_LEVEL_ENTITY top_de25
+set_global_assignment -name ORIGINAL_QUARTUS_VERSION 26.1.0
+set_global_assignment -name LAST_QUARTUS_VERSION "26.1.0 Pro Edition"
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+set_global_assignment -name MIN_CORE_JUNCTION_TEMP 0
+set_global_assignment -name MAX_CORE_JUNCTION_TEMP 100
+set_global_assignment -name DEVICE A5ED013BB32AE4SR1
+set_global_assignment -name FAMILY "Agilex 5"
+set_global_assignment -name ERROR_CHECK_FREQUENCY_DIVISOR 256
+set_global_assignment -name EDA_TIME_SCALE "1 ps" -section_id eda_simulation
+set_global_assignment -name EDA_OUTPUT_DATA_FORMAT "VERILOG HDL" -section_id eda_simulation
+
+set_global_assignment -name PWRMGT_VOLTAGE_OUTPUT_FORMAT "LINEAR FORMAT"
+set_global_assignment -name PWRMGT_LINEAR_FORMAT_N "-12"
+
+# RTL Source Files
+set_global_assignment -name VERILOG_FILE rtl/sensor_filter_core.v
+set_global_assignment -name VERILOG_FILE rtl/rom_sensor_reader.v
+set_global_assignment -name VERILOG_FILE rtl/uart_tx.v
+set_global_assignment -name VERILOG_FILE rtl/uart_rx.v
+set_global_assignment -name VERILOG_FILE rtl/seg7_decoder.v
+set_global_assignment -name VERILOG_FILE rtl/top_de25.v
+set_global_assignment -name VERILOG_FILE tb/tb_sensor_filter.v
+
+# Clock 50 MHz
+set_location_assignment PIN_CH128 -to clk -comment IOBANK_5A
+set_instance_assignment -name IO_STANDARD "1.8-V LVCMOS" -to clk -entity top_de25
+
+# Push buttons (Active-Low)
+set_location_assignment PIN_BW59 -to rst_n -comment IOBANK_2A_T
+set_instance_assignment -name IO_STANDARD "1.2-V" -to rst_n -entity top_de25
+set_location_assignment PIN_CA59 -to key1 -comment IOBANK_2A_T
+set_instance_assignment -name IO_STANDARD "1.2-V" -to key1 -entity top_de25
+
+# Slide Switches
+set_location_assignment PIN_BM62 -to sw[0] -comment IOBANK_2A_T
+set_instance_assignment -name IO_STANDARD "1.2-V" -to sw[0] -entity top_de25
+set_location_assignment PIN_BP62 -to sw[1] -comment IOBANK_2A_T
+set_instance_assignment -name IO_STANDARD "1.2-V" -to sw[1] -entity top_de25
+set_location_assignment PIN_BH62 -to sw[2] -comment IOBANK_2A_T
+set_instance_assignment -name IO_STANDARD "1.2-V" -to sw[2] -entity top_de25
+
+# 7-Segment Displays (Common Anode)
+set_location_assignment PIN_BP81 -to hex0[0] -comment IOBANK_2A_B
+set_location_assignment PIN_BM81 -to hex0[1] -comment IOBANK_2A_B
+set_location_assignment PIN_BM89 -to hex0[2] -comment IOBANK_2A_B
+set_location_assignment PIN_BK89 -to hex0[3] -comment IOBANK_2A_B
+set_location_assignment PIN_BH92 -to hex0[4] -comment IOBANK_2A_B
+set_location_assignment PIN_BM92 -to hex0[5] -comment IOBANK_2A_B
+set_location_assignment PIN_BP92 -to hex0[6] -comment IOBANK_2A_B
+
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex0[0] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex0[1] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex0[2] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex0[3] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex0[4] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex0[5] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex0[6] -entity top_de25
+
+set_location_assignment PIN_CA78 -to hex1[0] -comment IOBANK_2A_B
+set_location_assignment PIN_BW78 -to hex1[1] -comment IOBANK_2A_B
+set_location_assignment PIN_BU78 -to hex1[2] -comment IOBANK_2A_B
+set_location_assignment PIN_BR78 -to hex1[3] -comment IOBANK_2A_B
+set_location_assignment PIN_BU81 -to hex1[4] -comment IOBANK_2A_B
+set_location_assignment PIN_BR81 -to hex1[5] -comment IOBANK_2A_B
+set_location_assignment PIN_CA89 -to hex1[6] -comment IOBANK_2A_B
+
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex1[0] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex1[1] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex1[2] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex1[3] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex1[4] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex1[5] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex1[6] -entity top_de25
+
+set_location_assignment PIN_BW89 -to hex2[0] -comment IOBANK_2A_B
+set_location_assignment PIN_BU92 -to hex2[1] -comment IOBANK_2A_B
+set_location_assignment PIN_BR92 -to hex2[2] -comment IOBANK_2A_B
+set_location_assignment PIN_BU89 -to hex2[3] -comment IOBANK_2A_B
+set_location_assignment PIN_BR89 -to hex2[4] -comment IOBANK_2A_B
+set_location_assignment PIN_CF78 -to hex2[5] -comment IOBANK_2A_B
+set_location_assignment PIN_CH78 -to hex2[6] -comment IOBANK_2A_B
+
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex2[0] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex2[1] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex2[2] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex2[3] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex2[4] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex2[5] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to hex2[6] -entity top_de25
+
+# Red LEDs
+set_location_assignment PIN_CC71 -to ledr[0] -comment IOBANK_2A_T
+set_location_assignment PIN_BH78 -to ledr[1] -comment IOBANK_2A_B
+set_location_assignment PIN_CH69 -to ledr[2] -comment IOBANK_2A_T
+set_location_assignment PIN_CF69 -to ledr[3] -comment IOBANK_2A_T
+set_location_assignment PIN_CA62 -to ledr[4] -comment IOBANK_2A_T
+set_location_assignment PIN_CC62 -to ledr[5] -comment IOBANK_2A_T
+set_location_assignment PIN_CF62 -to ledr[6] -comment IOBANK_2A_T
+
+set_instance_assignment -name IO_STANDARD "1.2-V" -to ledr[0] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to ledr[1] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to ledr[2] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to ledr[3] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to ledr[4] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to ledr[5] -entity top_de25
+set_instance_assignment -name IO_STANDARD "1.2-V" -to ledr[6] -entity top_de25

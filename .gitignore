@@ -1,0 +1,38 @@
+# Quartus Prime & FPGA build artifacts
+output_files/
+db/
+incremental_db/
+qdb/
+dni/
+tmp-clearbox/
+simulation/
+*.qws
+*.bak
+*.rpt
+*.chg
+*.htm
+*.eqn
+*.pin
+*.sof
+*.pof
+*.summary
+
+# ModelSim / Questa simulation
+work/
+transcript
+vsim.wlf
+*.wlf
+wlft*
+*.vstf
+
+# Python cache & virtualenv
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Temporary files
+*.tmp
+test_write.txt
