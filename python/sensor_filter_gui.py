@@ -53,6 +53,10 @@ class SensorFilterGUI:
         self.csv_raw_matrix = [] # Parsed full matrix for CSV files
         self.csv_headers = []
 
+        # ROM 1024-sample capture state
+        self.is_recording_rom = False
+        self.rom_captured_samples = []
+
         # Setup UI
         self._build_ui()
         self._refresh_ports()
@@ -529,30 +533,163 @@ class SensorFilterGUI:
         threading.Thread(target=self._stream_samples_worker, args=(self.generated_samples, delay), daemon=True).start()
 
     # -------------------------------------------------------------------------
-    # TAB 3: ROM MONITOR
+    # TAB 3: ROM MONITOR & 1024 SAMPLES CAPTURE
     # -------------------------------------------------------------------------
     def _build_rom_tab(self, parent):
-        ttk.Label(parent, text="Chế độ giám sát ROM 1024 mẫu:", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=5)
+        ttk.Label(parent, text="Chế độ giám sát & Thu thập ROM 1024 mẫu:", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=3)
 
         info_box = ttk.Label(parent, text=(
-            "Thao tác trên bo mạch DE0-Nano:\n\n"
-            "1. Gạt SW[1] XUỐNG (0): Chọn nguồn ROM nội.\n"
-            "2. Gạt SW[2] LÊN (1): Tự phát liên tục 1.000 mẫu/giây.\n"
-            "   (hoặc Gạt SW[2] XUỐNG và bấm KEY[1] từng lần để đếm tay).\n\n"
-            "ESP32 sẽ liên tục nhận dữ liệu từ FPGA\n"
-            "và đồ thị bên phải sẽ tự động vẽ tín hiệu lọc!"
-        ), justify=tk.LEFT, foreground="#222", relief="groove", padding=10)
-        info_box.pack(fill=tk.X, pady=10)
+            "Thao tác trên bo mạch DE0-Nano:\n"
+            "1. Gạt SW[1] XUỐNG (0): Chọn nguồn ROM nội (1024 mẫu có sẵn).\n"
+            "2. Gạt SW[0]: Gạt XUỐNG (0) = MA Filter | Gạt LÊN (1) = FIR Filter.\n"
+            "3. Gạt SW[2] LÊN (1): Tự phát liên tục tuần hoàn 1.000 mẫu/giây."
+        ), justify=tk.LEFT, foreground="#222", relief="groove", padding=6)
+        info_box.pack(fill=tk.X, pady=4)
 
-        stat_frame = ttk.LabelFrame(parent, text=" Thống kê trực tiếp ", padding=10)
-        stat_frame.pack(fill=tk.X, pady=10)
+        # Khung thu thập trọn vẹn 1024 mẫu ROM
+        rec_frame = ttk.LabelFrame(parent, text=" ⏺ Thu thập & Xuất trọn vẹn 1024 mẫu ROM ", padding=8)
+        rec_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(rec_frame, text="Quy trình ghi đồng bộ 1 chu kỳ 1024 mẫu:\n"
+                                  "1. Bấm nút 'Bắt đầu ghi 1024 mẫu' bên dưới.\n"
+                                  "2. Nhấn giữ nút KEY[0] trên kit rồi thả ra (để Reset ROM về mẫu 0).\n"
+                                  "3. GUI tự động ghi đủ 1024 mẫu rồi xuất file CSV.",
+                  font=("Segoe UI", 8), foreground="#333").pack(anchor="w", pady=(0, 4))
+
+        self.btn_rec_rom = ttk.Button(rec_frame, text="⏺ Bắt đầu ghi 1024 mẫu ROM", command=self._toggle_rom_record)
+        self.btn_rec_rom.pack(fill=tk.X, pady=3)
+
+        self.prog_rom = ttk.Progressbar(rec_frame, orient=tk.HORIZONTAL, mode="determinate", maximum=1024)
+        self.prog_rom.pack(fill=tk.X, pady=3)
+
+        self.lbl_rom_rec_status = ttk.Label(rec_frame, text="Trạng thái: Chưa ghi", foreground="#555", font=("Segoe UI", 9, "bold"))
+        self.lbl_rom_rec_status.pack(anchor="w", pady=2)
+
+        btn_act_row = ttk.Frame(rec_frame)
+        btn_act_row.pack(fill=tk.X, pady=3)
+
+        self.btn_save_rom_csv = ttk.Button(btn_act_row, text="💾 Xuất file CSV (1024 mẫu)", command=self._export_rom_captured_csv, state=tk.DISABLED)
+        self.btn_save_rom_csv.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
+
+        self.btn_plot_rom_1024 = ttk.Button(btn_act_row, text="📊 Xem trọn 1024 mẫu", command=self._plot_captured_rom, state=tk.DISABLED)
+        self.btn_plot_rom_1024.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 0))
+
+        # Khung thống kê trực tiếp
+        stat_frame = ttk.LabelFrame(parent, text=" Thống kê trực tiếp ", padding=8)
+        stat_frame.pack(fill=tk.X, pady=4)
 
         self.lbl_stat_count = ttk.Label(stat_frame, text="Tổng số mẫu nhận: 0")
-        self.lbl_stat_count.pack(anchor="w", pady=2)
+        self.lbl_stat_count.pack(anchor="w", pady=1)
         self.lbl_stat_latest = ttk.Label(stat_frame, text="Giá trị mới nhất: N/A")
-        self.lbl_stat_latest.pack(anchor="w", pady=2)
+        self.lbl_stat_latest.pack(anchor="w", pady=1)
         self.lbl_stat_range = ttk.Label(stat_frame, text="Dải biên độ: [N/A, N/A]")
-        self.lbl_stat_range.pack(anchor="w", pady=2)
+        self.lbl_stat_range.pack(anchor="w", pady=1)
+
+    def _toggle_rom_record(self):
+        if not self.is_connected:
+            messagebox.showwarning("Cảnh báo", "Vui lòng kết nối cổng COM trước!")
+            return
+
+        if not self.is_recording_rom:
+            self.rom_captured_samples = []
+            self.is_recording_rom = True
+            self.prog_rom["value"] = 0
+            self.btn_rec_rom.config(text="⏹ Dừng thu thập")
+            self.lbl_rom_rec_status.config(text="Đang chờ nhận 1024 mẫu... (Bấm KEY[0] trên kit để reset về 0)", foreground="#0055aa")
+            self._log("Bắt đầu chế độ ghi 1024 mẫu từ ROM... (Hãy bấm phím KEY[0] trên kit DE0-Nano để đồng bộ)")
+        else:
+            self.is_recording_rom = False
+            self.btn_rec_rom.config(text="⏺ Bắt đầu ghi 1024 mẫu ROM")
+            self.lbl_rom_rec_status.config(text=f"Đã dừng ghi. Đã nhận: {len(self.rom_captured_samples)}/1024 mẫu", foreground="#aa5500")
+            if len(self.rom_captured_samples) > 0:
+                self.btn_save_rom_csv.config(state=tk.NORMAL)
+                self.btn_plot_rom_1024.config(state=tk.NORMAL)
+
+    def _on_rom_capture_completed(self):
+        self.prog_rom["value"] = 1024
+        self.btn_rec_rom.config(text="⏺ Bắt đầu ghi 1024 mẫu ROM")
+        self.lbl_rom_rec_status.config(text="✓ Đã thu thập đủ 1024 mẫu ROM!", foreground="green")
+        self.btn_save_rom_csv.config(state=tk.NORMAL)
+        self.btn_plot_rom_1024.config(state=tk.NORMAL)
+        self._log("Đã thu thập trọn vẹn 1024 mẫu từ ROM nội FPGA!")
+
+        if messagebox.askyesno("Thu thập thành công", "Đã thu thập thành công 1024 mẫu từ ROM nội FPGA!\n\nBạn có muốn lưu thành file CSV ngay bây giờ không?"):
+            self._export_rom_captured_csv()
+
+    def _load_rom_ground_truth(self):
+        """Đọc 1024 mẫu x[n] gốc từ file .mem trong thư mục rom để đối chiếu."""
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        cand_paths = [
+            os.path.join(script_dir, "..", "rom", "test_vectors_clean.mem"),
+            os.path.join(script_dir, "..", "rom", "test_vectors.mem"),
+            os.path.join("rom", "test_vectors_clean.mem"),
+            os.path.join("rom", "test_vectors.mem")
+        ]
+        for p in cand_paths:
+            if os.path.exists(p):
+                try:
+                    vals = []
+                    with open(p, "r", encoding="utf-8") as f:
+                        for line in f:
+                            s = line.strip()
+                            if not s or s.startswith("//"):
+                                continue
+                            raw_hex = int(s, 16)
+                            signed_val = raw_hex - 4096 if raw_hex >= 2048 else raw_hex
+                            vals.append(signed_val)
+                    if len(vals) >= 1024:
+                        return vals[:1024]
+                except Exception:
+                    pass
+        return None
+
+    def _export_rom_captured_csv(self):
+        if not self.rom_captured_samples:
+            messagebox.showinfo("Thông báo", "Chưa có dữ liệu 1024 mẫu ROM để xuất!")
+            return
+
+        ground_truth = self._load_rom_ground_truth()
+        default_name = "fpga_rom_filtered_1024.csv"
+        p = filedialog.asksaveasfilename(initialfile=default_name, defaultextension=".csv", filetypes=[("CSV file", "*.csv")])
+        if not p:
+            return
+
+        try:
+            with open(p, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                if ground_truth and len(ground_truth) >= 1024:
+                    writer.writerow(["Index", "ROM_Input_x[n]", "FPGA_Filtered_y[n]"])
+                    for i in range(1024):
+                        out_val = self.rom_captured_samples[i] if i < len(self.rom_captured_samples) else ""
+                        writer.writerow([i, ground_truth[i], out_val])
+                    self._log(f"Đã xuất 1024 mẫu ROM (kèm Input x[n] đối chiếu) ra: {p}")
+                else:
+                    writer.writerow(["Index", "FPGA_Filtered_y[n]"])
+                    for i, val in enumerate(self.rom_captured_samples[:1024]):
+                        writer.writerow([i, val])
+                    self._log(f"Đã xuất 1024 mẫu ngõ ra ROM ra: {p}")
+            messagebox.showinfo("Thành công", f"Đã lưu thành công 1024 mẫu ROM vào:\n{p}")
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể lưu file CSV:\n{e}")
+
+    def _plot_captured_rom(self):
+        if not self.rom_captured_samples:
+            return
+        ground_truth = self._load_rom_ground_truth()
+        self.raw_inputs.clear()
+        self.filtered_outputs.clear()
+        self.sample_indices.clear()
+
+        n = min(1024, len(self.rom_captured_samples))
+        for i in range(n):
+            self.sample_indices.append(i)
+            self.filtered_outputs.append(self.rom_captured_samples[i])
+            if ground_truth and i < len(ground_truth):
+                self.raw_inputs.append(ground_truth[i])
+
+        self.current_idx = n
+        self.spn_view_pts.set(1024)
+        self._log("Đã hiển thị trọn vẹn 1024 mẫu ROM lên đồ thị.")
 
     # -------------------------------------------------------------------------
     # Serial Worker & Communication
@@ -626,6 +763,13 @@ class SensorFilterGUI:
                 self.filtered_outputs.append(val)
                 self.sample_indices.append(self.current_idx)
                 self.current_idx += 1
+
+                # Ghi nhận trọn vẹn 1024 mẫu ROM nếu chế độ ghi đang bật
+                if hasattr(self, 'is_recording_rom') and self.is_recording_rom:
+                    self.rom_captured_samples.append(val)
+                    if len(self.rom_captured_samples) >= 1024:
+                        self.is_recording_rom = False
+                        self.root.after(0, self._on_rom_capture_completed)
         except ValueError:
             pass
 
@@ -723,6 +867,12 @@ class SensorFilterGUI:
             self.lbl_stat_count.config(text=f"Tổng số mẫu nhận: {self.current_idx}")
             self.lbl_stat_latest.config(text=f"Giá trị mới nhất: {y_out[-1]}")
             self.lbl_stat_range.config(text=f"Dải biên độ hiển thị: [{min(y_out)} .. {max(y_out)}]  (Trục Y: [{ymin} .. {ymax}])")
+
+        # Cập nhật thanh tiến trình ghi 1024 mẫu ROM nếu đang chạy
+        if hasattr(self, 'is_recording_rom') and self.is_recording_rom:
+            c = len(self.rom_captured_samples)
+            self.prog_rom["value"] = c
+            self.lbl_rom_rec_status.config(text=f"Đang thu thập: {c}/1024 mẫu ({c*100//1024}%)...", foreground="#0055aa")
 
         self.root.after(40, self._gui_update_loop)
 
