@@ -41,8 +41,8 @@ class SensorFilterGUI:
         self.reader_thread = None
         self.is_streaming = False
 
-        # Data buffers for real-time visualization (up to 1024 points)
-        self.MAX_POINTS = 512
+        # Data buffers for real-time visualization (up to 2048 points)
+        self.MAX_POINTS = 2048
         self.raw_inputs = deque(maxlen=self.MAX_POINTS)
         self.filtered_outputs = deque(maxlen=self.MAX_POINTS)
         self.sample_indices = deque(maxlen=self.MAX_POINTS)
@@ -150,15 +150,35 @@ class SensorFilterGUI:
         right_panel = ttk.LabelFrame(main_split, text=" Dạng sóng Thời gian thực (Input x[n] vs Output y[n]) ", padding=5)
         main_split.add(right_panel, weight=3)
 
+        # Thanh công cụ điều khiển đồ thị & Trục Y
+        graph_ctrl = ttk.Frame(right_panel)
+        graph_ctrl.pack(fill=tk.X, pady=(0, 4))
+
+        ttk.Label(graph_ctrl, text="🔍 Chế độ trục Y:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(5, 5))
+        self.cbo_scale_mode = ttk.Combobox(graph_ctrl, state="readonly", width=25, values=[
+            "Tự động tối ưu (Auto-Fit + 15%)",
+            "Đối xứng qua 0 (Symmetric)",
+            "Toàn dải 12-bit [-2048, +2047]",
+            "Dải 10-bit [-512, +511]",
+            "Dải 8-bit [-128, +127]"
+        ])
+        self.cbo_scale_mode.current(0) # Mặc định tự động co giãn đẹp nhất
+        self.cbo_scale_mode.pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(graph_ctrl, text="Số điểm hiển thị:").pack(side=tk.LEFT, padx=(15, 5))
+        self.spn_view_pts = ttk.Spinbox(graph_ctrl, from_=32, to=2048, increment=64, width=6)
+        self.spn_view_pts.set(256)
+        self.spn_view_pts.pack(side=tk.LEFT, padx=2)
+
         self.fig = Figure(figsize=(7, 5), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_title("So sánh Tín hiệu vào x[n] và Tín hiệu lọc ra y[n] trên FPGA", fontsize=11, fontweight="bold")
         self.ax.set_xlabel("Chỉ số mẫu (Sample Index n)")
-        self.ax.set_ylabel("Biên độ 12-bit [-2048, +2047]")
+        self.ax.set_ylabel("Biên độ tín hiệu")
         self.ax.grid(True, linestyle="--", alpha=0.6)
 
-        self.line_in, = self.ax.plot([], [], label="Đầu vào x[n] (Gửi từ PC)", color="#1f77b4", alpha=0.7, lw=1.5)
-        self.line_out, = self.ax.plot([], [], label="FPGA Lọc ra y[n]", color="#2ca02c", lw=2.0)
+        self.line_in, = self.ax.plot([], [], label="Đầu vào x[n] (Gốc)", color="#1f77b4", alpha=0.65, lw=1.5, linestyle="--")
+        self.line_out, = self.ax.plot([], [], label="FPGA Lọc ra y[n]", color="#2ca02c", lw=2.2)
         self.ax.legend(loc="upper right")
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=right_panel)
@@ -628,30 +648,81 @@ class SensorFilterGUI:
         self._log("Hoàn tất truyền dữ liệu sang FPGA!")
 
     def _gui_update_loop(self):
-        """Periodic refresh of plots and statistics."""
+        """Periodic refresh of plots and statistics with dynamic Y-axis auto-scaling."""
         if self.filtered_outputs:
-            n_pts = len(self.filtered_outputs)
-            x_data = list(self.sample_indices)
-            y_out = list(self.filtered_outputs)
+            try:
+                view_n = int(self.spn_view_pts.get())
+            except (ValueError, AttributeError):
+                view_n = 256
+            view_n = max(32, min(view_n, 2048))
+
+            x_all = list(self.sample_indices)
+            y_out_all = list(self.filtered_outputs)
+
+            # Cắt lát cửa sổ hiển thị theo số điểm người dùng chọn
+            x_data = x_all[-view_n:]
+            y_out = y_out_all[-view_n:]
 
             self.line_out.set_data(x_data, y_out)
 
+            all_visible_y = list(y_out)
+
             # If raw inputs exist, align and plot
             if self.raw_inputs:
-                y_in = list(self.raw_inputs)[-n_pts:]
-                x_in = x_data[-len(y_in):]
-                self.line_in.set_data(x_in, y_in)
+                y_in_all = list(self.raw_inputs)
+                y_in_slice = y_in_all[-len(x_data):]
+                x_in_slice = x_data[-len(y_in_slice):]
+                self.line_in.set_data(x_in_slice, y_in_slice)
+                all_visible_y.extend(y_in_slice)
+            else:
+                self.line_in.set_data([], [])
 
             min_x = x_data[0]
             max_x = x_data[-1] + 1 if x_data[-1] > x_data[0] else min_x + 10
             self.ax.set_xlim(min_x, max_x)
-            self.ax.set_ylim(-2100, 2100)
+
+            # -------------------------------------------------------------
+            # TỰ ĐỘNG TÍNH TOÁN TRỤC Y TỐI ƯU THEO DẢI DỮ LIỆU ĐANG HIỂN THỊ
+            # -------------------------------------------------------------
+            scale_mode = self.cbo_scale_mode.get() if hasattr(self, 'cbo_scale_mode') else "Tự động tối ưu (Auto-Fit + 15%)"
+
+            if "Toàn dải 12-bit" in scale_mode:
+                ymin, ymax = -2100, 2100
+            elif "10-bit" in scale_mode:
+                ymin, ymax = -520, 520
+            elif "8-bit" in scale_mode:
+                ymin, ymax = -135, 135
+            elif "Đối xứng qua 0" in scale_mode:
+                if all_visible_y:
+                    max_abs = max(abs(min(all_visible_y)), abs(max(all_visible_y)))
+                    margin = max(20, int(math.ceil(max_abs * 1.15)))
+                else:
+                    margin = 100
+                ymin, ymax = -margin, margin
+            else:
+                # Mặc định: "Tự động tối ưu (Auto-Fit + 15%)"
+                if all_visible_y:
+                    v_min = min(all_visible_y)
+                    v_max = max(all_visible_y)
+                    span = v_max - v_min
+                    if span < 1e-3:
+                        # Tín hiệu phẳng hằng số: đệm 20 đơn vị trên/dưới
+                        pad = 20
+                    else:
+                        # Đệm thêm 15% span để đỉnh sóng không bị chạm sát mép đồ thị
+                        pad = max(10, int(math.ceil(span * 0.15)))
+                    ymin = v_min - pad
+                    ymax = v_max + pad
+                else:
+                    ymin, ymax = -2100, 2100
+
+            self.ax.set_ylim(ymin, ymax)
             self.canvas.draw_idle()
 
             # Update stats
             self.lbl_stat_count.config(text=f"Tổng số mẫu nhận: {self.current_idx}")
             self.lbl_stat_latest.config(text=f"Giá trị mới nhất: {y_out[-1]}")
-            self.lbl_stat_range.config(text=f"Dải biên độ: [{min(y_out)} .. {max(y_out)}]")
+            self.lbl_stat_range.config(text=f"Dải biên độ hiển thị: [{min(y_out)} .. {max(y_out)}]  (Trục Y: [{ymin} .. {ymax}])")
 
         self.root.after(40, self._gui_update_loop)
 
