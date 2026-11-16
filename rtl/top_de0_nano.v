@@ -46,8 +46,8 @@ module top_de0_nano (
     wire rom_enable = SW[2];  // 1: Tự phát 1024 mẫu ROM ở 1.000 mẫu/giây
 
     // ------------------------------------------------------------------------
-    // Debounce KEY[1] (Active-Low) with 20ms noise filter to avoid chatter
-    // 50 MHz * 20 ms = 1,000,000 clock cycles (20-bit counter)
+    // Debounce KEY[1] (Active-Low) with 5ms noise filter to avoid chatter
+    // 50 MHz * 5 ms = 250,000 clock cycles (ultra-responsive, bounce-free)
     // ------------------------------------------------------------------------
     reg [19:0] key1_cnt;
     reg        key1_clean;
@@ -62,7 +62,7 @@ module top_de0_nano (
         end else begin
             key1_clean_d <= key1_clean;
             if (KEY[1] != key1_clean) begin
-                if (key1_cnt >= 20'd1_000_000) begin
+                if (key1_cnt >= 20'd250_000) begin
                     key1_clean <= KEY[1];
                     key1_cnt   <= 20'd0;
                 end else begin
