@@ -33,6 +33,15 @@ __pycache__/
 venv/
 ENV/
 
+# PlatformIO & VS Code
+.pio/
+**/.pio/
+.vscode/
+**/.vscode/
+*.bin
+*.elf
+*.hex
+
 # Temporary files
 *.tmp
 test_write.txt
