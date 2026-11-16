@@ -32,8 +32,8 @@ class SensorFilterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Topic 22: DE0-Nano FPGA Sensor Filter Controller & Visualizer")
-        self.root.geometry("1200x820")
-        self.root.minsize(1050, 720)
+        self.root.geometry("1260x860")
+        self.root.minsize(1100, 750)
 
         # Serial state
         self.ser = None
@@ -48,8 +48,10 @@ class SensorFilterGUI:
         self.sample_indices = deque(maxlen=self.MAX_POINTS)
         self.current_idx = 0
 
-        # Generator data
+        # Generator & File loaded data
         self.generated_samples = []
+        self.csv_raw_matrix = [] # Parsed full matrix for CSV files
+        self.csv_headers = []
 
         # Setup UI
         self._build_ui()
@@ -59,15 +61,50 @@ class SensorFilterGUI:
         self.root.after(33, self._gui_update_loop)
 
     def _build_ui(self):
-        # Top toolbar: Connection
-        conn_frame = ttk.LabelFrame(self.root, text=" 1. Kết nối Cổng COM (ESP32 Bridge) ", padding=(10, 5))
-        conn_frame.pack(fill=tk.X, padx=10, pady=5)
+        # ---------------------------------------------------------------------
+        # 1. Hướng dẫn nhanh Switch & Phím bấm DE0-Nano (Ngay ngoài trang chính)
+        # ---------------------------------------------------------------------
+        guide_frame = ttk.LabelFrame(self.root, text=" 📌 BẢNG HƯỚNG DẪN CÔNG TẮC & NÚT NHẤN TRÊN KIT DE0-NANO ", padding=(10, 6))
+        guide_frame.pack(fill=tk.X, padx=10, pady=(6, 3))
+
+        guide_grid = ttk.Frame(guide_frame)
+        guide_grid.pack(fill=tk.X, expand=True)
+
+        # Column 1: SW[0] & SW[1]
+        col1 = ttk.Frame(guide_grid)
+        col1.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+
+        lbl_sw0 = ttk.Label(col1, text="• SW[0] (Loại bộ lọc):", font=("Segoe UI", 9, "bold"), foreground="#0055aa")
+        lbl_sw0.pack(anchor="w")
+        ttk.Label(col1, text="  - GẠT XUỐNG (0) : Bộ lọc Moving Average 8 mẫu (LED 7 đoạn hiện chữ 'A')\n  - GẠT LÊN (1)   : Bộ lọc FIR 8-tap Q1.15 (LED 7 đoạn hiện chữ 'F')").pack(anchor="w")
+
+        lbl_sw1 = ttk.Label(col1, text="• SW[1] (Nguồn dữ liệu):", font=("Segoe UI", 9, "bold"), foreground="#0055aa")
+        lbl_sw1.pack(anchor="w", pady=(4, 0))
+        ttk.Label(col1, text="  - GẠT XUỐNG (0) : Lấy từ ROM nội (1024 mẫu có sẵn)\n  - GẠT LÊN (1)   : Nhận từ UART RX ngoài (Gửi từ GUI / ESP32)").pack(anchor="w")
+
+        # Column 2: SW[2] & Buttons KEY[0], KEY[1]
+        col2 = ttk.Frame(guide_grid)
+        col2.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+
+        lbl_sw2 = ttk.Label(col2, text="• SW[2] (Chế độ phát ROM):", font=("Segoe UI", 9, "bold"), foreground="#0055aa")
+        lbl_sw2.pack(anchor="w")
+        ttk.Label(col2, text="  - GẠT XUỐNG (0) : Chế độ bấm tay (Nhấn nút KEY[1] để kích từng mẫu)\n  - GẠT LÊN (1)   : Tự động phát liên tục tuần hoàn 1.000 mẫu/giây").pack(anchor="w")
+
+        lbl_keys = ttk.Label(col2, text="• Nút nhấn KEY:", font=("Segoe UI", 9, "bold"), foreground="#0055aa")
+        lbl_keys.pack(anchor="w", pady=(4, 0))
+        ttk.Label(col2, text="  - KEY[0] : Reset hệ thống (Nhấn giữ = Reset, Thả = Chạy bình thường)\n  - KEY[1] : Kích phát đúng 1 mẫu đơn khi SW[2]=0 (Đã khử rung 5ms)").pack(anchor="w")
+
+        # ---------------------------------------------------------------------
+        # 2. Thanh kết nối Cổng COM (ESP32 Bridge)
+        # ---------------------------------------------------------------------
+        conn_frame = ttk.LabelFrame(self.root, text=" Kết nối Cổng COM (ESP32 UART Bridge) ", padding=(10, 5))
+        conn_frame.pack(fill=tk.X, padx=10, pady=3)
 
         ttk.Label(conn_frame, text="Cổng COM:").pack(side=tk.LEFT, padx=(0, 5))
         self.cbo_port = ttk.Combobox(conn_frame, width=15, state="readonly")
         self.cbo_port.pack(side=tk.LEFT, padx=5)
 
-        btn_refresh = ttk.Button(conn_frame, text="Quét lại", command=self._refresh_ports)
+        btn_refresh = ttk.Button(conn_frame, text="Quét cổng", command=self._refresh_ports)
         btn_refresh.pack(side=tk.LEFT, padx=5)
 
         ttk.Label(conn_frame, text="Baudrate:").pack(side=tk.LEFT, padx=(15, 5))
@@ -81,39 +118,41 @@ class SensorFilterGUI:
         self.lbl_status = ttk.Label(conn_frame, text="● Chưa kết nối", foreground="red", font=("Segoe UI", 9, "bold"))
         self.lbl_status.pack(side=tk.LEFT, padx=10)
 
-        # Main horizontal split
+        # ---------------------------------------------------------------------
+        # 3. Main horizontal split
+        # ---------------------------------------------------------------------
         main_split = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
-        main_split.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        main_split.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
 
-        # Left panel: Controls (Tabs for Generator, File Loader, ROM Monitoring)
-        left_panel = ttk.Frame(main_split, width=420)
-        main_split.add(left_panel, weight=1)
+        # Left panel: Tabs (Generator, CSV/File Loader, ROM Monitor)
+        left_panel = ttk.Frame(main_split, width=460)
+        main_split.add(left_panel, weight=2)
 
         notebook = ttk.Notebook(left_panel)
         notebook.pack(fill=tk.BOTH, expand=True)
 
-        # TAB 1: Signal Generator
-        tab_gen = ttk.Frame(notebook, padding=10)
-        notebook.add(tab_gen, text="Sinh tín hiệu")
+        # TAB 1: CSV / File Loader (Hỗ trợ chọn theo HÀNG hoặc theo CỘT)
+        tab_csv = ttk.Frame(notebook, padding=8)
+        notebook.add(tab_csv, text="Nạp File (CSV / MEM / TXT)")
+        self._build_csv_tab(tab_csv)
+
+        # TAB 2: Signal Generator
+        tab_gen = ttk.Frame(notebook, padding=8)
+        notebook.add(tab_gen, text="Tự sinh tín hiệu")
         self._build_generator_tab(tab_gen)
 
-        # TAB 2: File Loader
-        tab_file = ttk.Frame(notebook, padding=10)
-        notebook.add(tab_file, text="Nạp file (.csv / .mem)")
-        self._build_file_tab(tab_file)
-
         # TAB 3: ROM Monitor & Statistics
-        tab_rom = ttk.Frame(notebook, padding=10)
+        tab_rom = ttk.Frame(notebook, padding=8)
         notebook.add(tab_rom, text="Giám sát ROM nội")
         self._build_rom_tab(tab_rom)
 
         # Right panel: Real-time Matplotlib Graphs
-        right_panel = ttk.LabelFrame(main_split, text=" Dạng sóng Thời gian thực (Input vs Output Filtered) ", padding=5)
+        right_panel = ttk.LabelFrame(main_split, text=" Dạng sóng Thời gian thực (Input x[n] vs Output y[n]) ", padding=5)
         main_split.add(right_panel, weight=3)
 
         self.fig = Figure(figsize=(7, 5), dpi=100)
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_title("So sánh Tín hiệu vào x[n] và Tín hiệu lọc ra y[n]", fontsize=11, fontweight="bold")
+        self.ax.set_title("So sánh Tín hiệu vào x[n] và Tín hiệu lọc ra y[n] trên FPGA", fontsize=11, fontweight="bold")
         self.ax.set_xlabel("Chỉ số mẫu (Sample Index n)")
         self.ax.set_ylabel("Biên độ 12-bit [-2048, +2047]")
         self.ax.grid(True, linestyle="--", alpha=0.6)
@@ -128,7 +167,9 @@ class SensorFilterGUI:
         toolbar = NavigationToolbar2Tk(self.canvas, right_panel)
         toolbar.update()
 
-        # Bottom panel: Log Console & Export
+        # ---------------------------------------------------------------------
+        # 4. Bottom panel: Log Console & Export
+        # ---------------------------------------------------------------------
         bottom_frame = ttk.LabelFrame(self.root, text=" Nhật ký dữ liệu truyền nhận ", padding=5)
         bottom_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
 
@@ -145,8 +186,247 @@ class SensorFilterGUI:
         ttk.Button(btn_box, text="Xoá đồ thị", command=self._clear_charts).pack(fill=tk.X, pady=2)
         ttk.Button(btn_box, text="Lưu CSV", command=self._export_csv).pack(fill=tk.X, pady=2)
 
+    # -------------------------------------------------------------------------
+    # TAB 1: CSV LOADER (Theo Cột hoặc Theo Hàng)
+    # -------------------------------------------------------------------------
+    def _build_csv_tab(self, parent):
+        ttk.Label(parent, text="1. Chọn file dữ liệu (.csv / .mem / .txt):", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 4))
+
+        pick_frame = ttk.Frame(parent)
+        pick_frame.pack(fill=tk.X, pady=2)
+
+        self.txt_file_path = ttk.Entry(pick_frame)
+        self.txt_file_path.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+
+        ttk.Button(pick_frame, text="Duyệt...", command=self._browse_file).pack(side=tk.LEFT)
+
+        # Tùy chọn trích xuất dữ liệu CSV
+        opt_frame = ttk.LabelFrame(parent, text=" 2. Tuỳ chọn trích xuất dữ liệu CSV ", padding=8)
+        opt_frame.pack(fill=tk.X, pady=8)
+
+        # Chế độ: Theo Cột hay Theo Hàng
+        mode_row = ttk.Frame(opt_frame)
+        mode_row.pack(fill=tk.X, pady=3)
+        ttk.Label(mode_row, text="Chiều dữ liệu:").pack(side=tk.LEFT, padx=(0, 10))
+
+        self.csv_mode_var = tk.StringVar(value="COL")
+        rb_col = ttk.Radiobutton(mode_row, text="Theo CỘT (Column)", variable=self.csv_mode_var, value="COL", command=self._update_csv_ui_state)
+        rb_col.pack(side=tk.LEFT, padx=5)
+        rb_row = ttk.Radiobutton(mode_row, text="Theo HÀNG (Row)", variable=self.csv_mode_var, value="ROW", command=self._update_csv_ui_state)
+        rb_row.pack(side=tk.LEFT, padx=5)
+
+        # Chọn số Cột hoặc số Hàng
+        self.idx_frame = ttk.Frame(opt_frame)
+        self.idx_frame.pack(fill=tk.X, pady=4)
+
+        self.lbl_target = ttk.Label(self.idx_frame, text="Chọn Cột cần lấy:")
+        self.lbl_target.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.cbo_target_col = ttk.Combobox(self.idx_frame, width=22, state="readonly")
+        self.cbo_target_col.pack(side=tk.LEFT, padx=5)
+        self.cbo_target_col.bind("<<ComboboxSelected>>", lambda e: self._preview_csv_selection())
+
+        self.spn_target_row = ttk.Spinbox(self.idx_frame, from_=0, to=99999, width=10)
+        self.spn_target_row.set(0)
+
+        # Bỏ qua dòng Header đầu tiên
+        self.chk_skip_header_var = tk.BooleanVar(value=True)
+        self.chk_skip_header = ttk.Checkbutton(opt_frame, text="Bỏ qua dòng Header đầu tiên (nếu có chữ)", variable=self.chk_skip_header_var, command=self._preview_csv_selection)
+        self.chk_skip_header.pack(anchor="w", pady=2)
+
+        # Giới hạn số mẫu
+        lim_row = ttk.Frame(opt_frame)
+        lim_row.pack(fill=tk.X, pady=4)
+        ttk.Label(lim_row, text="Số mẫu tối đa lấy:").pack(side=tk.LEFT, padx=(0, 5))
+        self.spn_max_samples = ttk.Spinbox(lim_row, from_=10, to=10000, increment=100, width=10)
+        self.spn_max_samples.set(1024)
+        self.spn_max_samples.pack(side=tk.LEFT, padx=5)
+        ttk.Label(lim_row, text="(mẫu)").pack(side=tk.LEFT)
+
+        ttk.Button(opt_frame, text="Trích xuất & Xem trước", command=self._preview_csv_selection).pack(fill=tk.X, pady=5)
+
+        # Khung thông tin xem trước (Preview)
+        prev_frame = ttk.LabelFrame(parent, text=" 3. Dữ liệu trích xuất sẵn sàng gửi ", padding=8)
+        prev_frame.pack(fill=tk.BOTH, expand=True, pady=4)
+
+        self.lbl_csv_summary = ttk.Label(prev_frame, text="Chưa nạp file.", foreground="#666")
+        self.lbl_csv_summary.pack(anchor="w", pady=2)
+
+        self.txt_csv_preview = tk.Text(prev_frame, height=5, font=("Consolas", 8), wrap=tk.NONE)
+        self.txt_csv_preview.pack(fill=tk.BOTH, expand=True, pady=3)
+
+        send_row = ttk.Frame(parent)
+        send_row.pack(fill=tk.X, pady=5)
+
+        ttk.Label(send_row, text="Tốc độ gửi:").pack(side=tk.LEFT, padx=(0, 5))
+        self.spn_file_rate = ttk.Spinbox(send_row, from_=10, to=1000, increment=50, width=7)
+        self.spn_file_rate.set(100)
+        self.spn_file_rate.pack(side=tk.LEFT, padx=5)
+        ttk.Label(send_row, text="mẫu/s").pack(side=tk.LEFT, padx=(0, 15))
+
+        self.btn_send_file = ttk.Button(send_row, text="🚀 Gửi sang FPGA lọc", command=self._send_file_data)
+        self.btn_send_file.pack(side=tk.RIGHT, expand=True, fill=tk.X)
+
+    def _update_csv_ui_state(self):
+        mode = self.csv_mode_var.get()
+        if mode == "COL":
+            self.lbl_target.config(text="Chọn Cột cần lấy:")
+            self.spn_target_row.pack_forget()
+            self.cbo_target_col.pack(side=tk.LEFT, padx=5)
+            self.chk_skip_header.pack(anchor="w", pady=2)
+        else: # ROW
+            self.lbl_target.config(text="Chọn Hàng (Row Index):")
+            self.cbo_target_col.pack_forget()
+            self.spn_target_row.pack(side=tk.LEFT, padx=5)
+            self.chk_skip_header.pack_forget()
+
+        self._preview_csv_selection()
+
+    def _browse_file(self):
+        p = filedialog.askopenfilename(filetypes=[("Data files", "*.csv;*.mem;*.txt"), ("CSV files", "*.csv"), ("All files", "*.*")])
+        if p:
+            self.txt_file_path.delete(0, tk.END)
+            self.txt_file_path.insert(0, p)
+            self._parse_raw_file(p)
+
+    def _parse_raw_file(self, path):
+        if not os.path.exists(path):
+            return
+
+        self.csv_raw_matrix = []
+        self.csv_headers = []
+
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                # Detect delimiter for CSV
+                first_few_lines = [f.readline() for _ in range(5)]
+                f.seek(0)
+
+                sample_text = "".join(first_few_lines)
+                delimiter = ","
+                if ";" in sample_text and sample_text.count(";") > sample_text.count(","):
+                    delimiter = ";"
+                elif "\t" in sample_text and sample_text.count("\t") > sample_text.count(","):
+                    delimiter = "\t"
+
+                reader = csv.reader(f, delimiter=delimiter)
+                for row in reader:
+                    cleaned_row = [item.strip() for item in row if item.strip()]
+                    if cleaned_row:
+                        self.csv_raw_matrix.append(cleaned_row)
+
+            if not self.csv_raw_matrix:
+                self.lbl_csv_summary.config(text="File rỗng!")
+                return
+
+            num_rows = len(self.csv_raw_matrix)
+            num_cols = max(len(r) for r in self.csv_raw_matrix)
+
+            # Update combobox columns
+            col_options = []
+            for c in range(num_cols):
+                header_name = self.csv_raw_matrix[0][c] if c < len(self.csv_raw_matrix[0]) else ""
+                col_options.append(f"Cột {c}: {header_name}")
+
+            self.cbo_target_col["values"] = col_options
+            if col_options:
+                # Pick column 1 if column 0 looks like an index/time
+                self.cbo_target_col.current(1 if len(col_options) > 1 else 0)
+
+            self.spn_target_row.config(to=num_rows - 1)
+            self._log(f"Đã mở file: {os.path.basename(path)} ({num_rows} hàng, {num_cols} cột)")
+            self._preview_csv_selection()
+
+        except Exception as e:
+            messagebox.showerror("Lỗi đọc file", f"Không thể phân tích cấu trúc file:\n{e}")
+
+    def _preview_csv_selection(self):
+        if not self.csv_raw_matrix:
+            return
+
+        mode = self.csv_mode_var.get()
+        max_samples = int(self.spn_max_samples.get())
+        extracted_vals = []
+
+        if mode == "COL":
+            col_idx = self.cbo_target_col.current()
+            if col_idx < 0:
+                col_idx = 0
+            skip_header = self.chk_skip_header_var.get()
+            start_row = 1 if skip_header else 0
+
+            for r in range(start_row, len(self.csv_raw_matrix)):
+                row = self.csv_raw_matrix[r]
+                if col_idx < len(row):
+                    cell = row[col_idx]
+                    try:
+                        # Parse decimal or hex
+                        if cell.startswith("0x") or cell.startswith("0X"):
+                            v = int(cell, 16)
+                        else:
+                            v = int(float(cell))
+                        # Saturate signed 12-bit
+                        v = max(-2048, min(2047, v))
+                        extracted_vals.append(v)
+                    except ValueError:
+                        continue # Skip text/NaN cells
+                if len(extracted_vals) >= max_samples:
+                    break
+
+        else: # ROW mode
+            try:
+                row_idx = int(self.spn_target_row.get())
+            except ValueError:
+                row_idx = 0
+            row_idx = max(0, min(len(self.csv_raw_matrix) - 1, row_idx))
+            target_row = self.csv_raw_matrix[row_idx]
+
+            for cell in target_row:
+                try:
+                    if cell.startswith("0x") or cell.startswith("0X"):
+                        v = int(cell, 16)
+                    else:
+                        v = int(float(cell))
+                    v = max(-2048, min(2047, v))
+                    extracted_vals.append(v)
+                except ValueError:
+                    continue
+                if len(extracted_vals) >= max_samples:
+                    break
+
+        self.generated_samples = extracted_vals
+
+        if extracted_vals:
+            preview_str = ", ".join(str(v) for v in extracted_vals[:20])
+            if len(extracted_vals) > 20:
+                preview_str += f", ... (còn {len(extracted_vals) - 20} mẫu)"
+            self.lbl_csv_summary.config(
+                text=f"Trích xuất thành công: {len(extracted_vals)} mẫu\nDải biên độ: [{min(extracted_vals)} .. {max(extracted_vals)}]",
+                foreground="#007700"
+            )
+            self.txt_csv_preview.delete("1.0", tk.END)
+            self.txt_csv_preview.insert(tk.END, preview_str)
+        else:
+            self.lbl_csv_summary.config(text="Không tìm thấy số liệu hợp lệ trong lựa chọn!", foreground="red")
+            self.txt_csv_preview.delete("1.0", tk.END)
+
+    def _send_file_data(self):
+        if not self.is_connected:
+            messagebox.showwarning("Cảnh báo", "Vui lòng kết nối cổng COM trước!")
+            return
+        if not self.generated_samples:
+            messagebox.showwarning("Cảnh báo", "Chưa có mẫu nào được trích xuất để gửi!")
+            return
+
+        rate = int(self.spn_file_rate.get())
+        delay = 1.0 / rate
+        threading.Thread(target=self._stream_samples_worker, args=(self.generated_samples, delay), daemon=True).start()
+
+    # -------------------------------------------------------------------------
+    # TAB 2: SIGNAL GENERATOR
+    # -------------------------------------------------------------------------
     def _build_generator_tab(self, parent):
-        ttk.Label(parent, text="Dạng sóng:", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Label(parent, text="Dạng sóng thử nghiệm:", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w", pady=4)
         self.cbo_wave = ttk.Combobox(parent, state="readonly", values=[
             "Sóng Sin + Nhiễu Gaussian",
             "Hàm bước nhảy (Step Response)",
@@ -186,36 +466,62 @@ class SensorFilterGUI:
         self.lbl_gen_info = ttk.Label(parent, text="Chưa tạo mẫu nào.", foreground="#666")
         self.lbl_gen_info.grid(row=6, column=0, columnspan=2, sticky="w", pady=5)
 
-    def _build_file_tab(self, parent):
-        ttk.Label(parent, text="Chọn file chứa dữ liệu 12-bit:", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=5)
+    def _generate_signal(self):
+        wtype = self.cbo_wave.get()
+        count = int(self.spn_count.get())
+        amp = int(self.spn_amp.get())
+        noise = int(self.spn_noise.get())
 
-        pick_frame = ttk.Frame(parent)
-        pick_frame.pack(fill=tk.X, pady=5)
+        samples = []
+        for i in range(count):
+            if "Sin" in wtype:
+                clean = amp * math.sin(2.0 * math.pi * i / 32.0)
+                n = random.gauss(0, noise) if noise > 0 else 0
+                val = int(clean + n)
+            elif "bước nhảy" in wtype:
+                clean = 0 if i < (count // 2) else amp
+                n = random.gauss(0, noise) if noise > 0 else 0
+                val = int(clean + n)
+            elif "vuông" in wtype:
+                clean = amp if (i % 32) < 16 else -amp
+                n = random.gauss(0, noise) if noise > 0 else 0
+                val = int(clean + n)
+            else: # Gaussian noise only
+                val = int(random.gauss(0, noise))
 
-        self.txt_file_path = ttk.Entry(pick_frame)
-        self.txt_file_path.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+            # Saturate to signed 12-bit
+            val = max(-2048, min(2047, val))
+            samples.append(val)
 
-        ttk.Button(pick_frame, text="Duyệt...", command=self._browse_file).pack(side=tk.LEFT)
+        self.generated_samples = samples
+        self.lbl_gen_info.config(text=f"Đã tạo {len(samples)} mẫu [{min(samples)} .. {max(samples)}].")
+        self._log(f"Đã sinh {len(samples)} mẫu dạng '{wtype}'. Sẵn sàng gửi sang FPGA.")
 
-        ttk.Button(parent, text="Đọc và nạp dữ liệu", command=self._load_file_data).pack(fill=tk.X, pady=8)
+    def _send_generated(self):
+        if not self.is_connected:
+            messagebox.showwarning("Cảnh báo", "Vui lòng kết nối cổng COM trước!")
+            return
+        if not self.generated_samples:
+            self._generate_signal()
 
-        self.lbl_file_info = ttk.Label(parent, text="Chưa nạp file.", foreground="#666")
-        self.lbl_file_info.pack(anchor="w", pady=5)
+        rate = int(self.spn_rate.get())
+        delay = 1.0 / rate
+        threading.Thread(target=self._stream_samples_worker, args=(self.generated_samples, delay), daemon=True).start()
 
-        self.btn_send_file = ttk.Button(parent, text="Gửi toàn bộ file sang FPGA lọc", command=self._send_file_data)
-        self.btn_send_file.pack(fill=tk.X, pady=15)
-
+    # -------------------------------------------------------------------------
+    # TAB 3: ROM MONITOR
+    # -------------------------------------------------------------------------
     def _build_rom_tab(self, parent):
         ttk.Label(parent, text="Chế độ giám sát ROM 1024 mẫu:", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=5)
 
         info_box = ttk.Label(parent, text=(
-            "Hướng dẫn trên bo mạch DE0-Nano:\n"
-            "1. Gạt SW[1] = 0 (Chọn nguồn ROM nội)\n"
-            "2. Gạt SW[2] = 1 (Tự động phát 1.000 mẫu/s)\n"
-            "   hoặc bấm nút KEY[1] để đếm tay.\n\n"
+            "Thao tác trên bo mạch DE0-Nano:\n\n"
+            "1. Gạt SW[1] XUỐNG (0): Chọn nguồn ROM nội.\n"
+            "2. Gạt SW[2] LÊN (1): Tự phát liên tục 1.000 mẫu/giây.\n"
+            "   (hoặc Gạt SW[2] XUỐNG và bấm KEY[1] từng lần để đếm tay).\n\n"
             "ESP32 sẽ liên tục nhận dữ liệu từ FPGA\n"
-            "và đồ thị bên phải sẽ vẽ đường cong lọc!"
-        ), justify=tk.LEFT, foreground="#333", relief="groove", padding=10)
+            "và đồ thị bên phải sẽ tự động vẽ tín hiệu lọc!"
+        ), justify=tk.LEFT, foreground="#222", relief="groove", padding=10)
         info_box.pack(fill=tk.X, pady=10)
 
         stat_frame = ttk.LabelFrame(parent, text=" Thống kê trực tiếp ", padding=10)
@@ -228,6 +534,9 @@ class SensorFilterGUI:
         self.lbl_stat_range = ttk.Label(stat_frame, text="Dải biên độ: [N/A, N/A]")
         self.lbl_stat_range.pack(anchor="w", pady=2)
 
+    # -------------------------------------------------------------------------
+    # Serial Worker & Communication
+    # -------------------------------------------------------------------------
     def _refresh_ports(self):
         ports = [p.device for p in serial.tools.list_ports.comports()]
         self.cbo_port["values"] = ports
@@ -300,105 +609,13 @@ class SensorFilterGUI:
         except ValueError:
             pass
 
-    def _generate_signal(self):
-        wtype = self.cbo_wave.get()
-        count = int(self.spn_count.get())
-        amp = int(self.spn_amp.get())
-        noise = int(self.spn_noise.get())
-
-        samples = []
-        for i in range(count):
-            if "Sin" in wtype:
-                clean = amp * math.sin(2.0 * math.pi * i / 32.0)
-                n = random.gauss(0, noise) if noise > 0 else 0
-                val = int(clean + n)
-            elif "bước nhảy" in wtype:
-                clean = 0 if i < (count // 2) else amp
-                n = random.gauss(0, noise) if noise > 0 else 0
-                val = int(clean + n)
-            elif "vuông" in wtype:
-                clean = amp if (i % 32) < 16 else -amp
-                n = random.gauss(0, noise) if noise > 0 else 0
-                val = int(clean + n)
-            else: # Gaussian noise only
-                val = int(random.gauss(0, noise))
-
-            # Saturate to signed 12-bit
-            val = max(-2048, min(2047, val))
-            samples.append(val)
-
-        self.generated_samples = samples
-        self.lbl_gen_info.config(text=f"Đã tạo {len(samples)} mẫu [{min(samples)} .. {max(samples)}].")
-        self._log(f"Đã sinh {len(samples)} mẫu dạng '{wtype}'. Sẵn sàng gửi sang FPGA.")
-
-    def _send_generated(self):
-        if not self.is_connected:
-            messagebox.showwarning("Cảnh báo", "Vui lòng kết nối cổng COM trước!")
-            return
-        if not self.generated_samples:
-            self._generate_signal()
-
-        rate = int(self.spn_rate.get())
-        delay = 1.0 / rate
-
-        threading.Thread(target=self._stream_samples_worker, args=(self.generated_samples, delay), daemon=True).start()
-
-    def _browse_file(self):
-        p = filedialog.askopenfilename(filetypes=[("Data files", "*.csv;*.mem;*.txt"), ("All files", "*.*")])
-        if p:
-            self.txt_file_path.delete(0, tk.END)
-            self.txt_file_path.insert(0, p)
-            self._load_file_data()
-
-    def _load_file_data(self):
-        p = self.txt_file_path.get().strip()
-        if not os.path.exists(p):
-            messagebox.showerror("Lỗi", "File không tồn tại!")
-            return
-
-        samples = []
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    # Check hex (.mem) or decimal (.csv/.txt)
-                    if p.endswith(".mem"):
-                        val = int(line, 16)
-                        if val >= 2048:
-                            val -= 4096
-                    else:
-                        parts = line.split(",")
-                        val = int(float(parts[0]))
-                    val = max(-2048, min(2047, val))
-                    samples.append(val)
-
-            self.generated_samples = samples
-            self.lbl_file_info.config(text=f"Đã nạp {len(samples)} mẫu từ file.\nDải: [{min(samples)} .. {max(samples)}]")
-            self._log(f"Đã nạp {len(samples)} mẫu từ {os.path.basename(p)}")
-        except Exception as e:
-            messagebox.showerror("Lỗi đọc file", f"Không thể đọc file:\n{e}")
-
-    def _send_file_data(self):
-        if not self.is_connected:
-            messagebox.showwarning("Cảnh báo", "Vui lòng kết nối cổng COM trước!")
-            return
-        if not self.generated_samples:
-            messagebox.showwarning("Cảnh báo", "Chưa có dữ liệu nào được nạp!")
-            return
-
-        delay = 0.005 # 5ms per sample (~200 samples/sec)
-        threading.Thread(target=self._stream_samples_worker, args=(self.generated_samples, delay), daemon=True).start()
-
     def _stream_samples_worker(self, samples, delay_sec):
         self.is_streaming = True
-        self._log(f"Bắt đầu phát {len(samples)} mẫu sang FPGA qua ESP32 (giãn cách {delay_sec*1000:.1f}ms)...")
+        self._log(f"Bắt đầu phát {len(samples)} mẫu sang FPGA qua ESP32 (tốc độ {1.0/delay_sec:.0f} mẫu/s)...")
 
         for val in samples:
             if not self.is_connected:
                 break
-            # Send sample command: D:<val>\n
             cmd = f"D:{val}\n"
             try:
                 self.ser.write(cmd.encode("ascii"))
@@ -411,7 +628,7 @@ class SensorFilterGUI:
         self._log("Hoàn tất truyền dữ liệu sang FPGA!")
 
     def _gui_update_loop(self):
-        """Called periodically to refresh plot and statistics."""
+        """Periodic refresh of plots and statistics."""
         if self.filtered_outputs:
             n_pts = len(self.filtered_outputs)
             x_data = list(self.sample_indices)
@@ -419,13 +636,12 @@ class SensorFilterGUI:
 
             self.line_out.set_data(x_data, y_out)
 
-            # If we also sent raw inputs, align and plot
+            # If raw inputs exist, align and plot
             if self.raw_inputs:
                 y_in = list(self.raw_inputs)[-n_pts:]
                 x_in = x_data[-len(y_in):]
                 self.line_in.set_data(x_in, y_in)
 
-            # Adjust axes limits
             min_x = x_data[0]
             max_x = x_data[-1] + 1 if x_data[-1] > x_data[0] else min_x + 10
             self.ax.set_xlim(min_x, max_x)
@@ -437,7 +653,7 @@ class SensorFilterGUI:
             self.lbl_stat_latest.config(text=f"Giá trị mới nhất: {y_out[-1]}")
             self.lbl_stat_range.config(text=f"Dải biên độ: [{min(y_out)} .. {max(y_out)}]")
 
-        self.root.after(50, self._gui_update_loop)
+        self.root.after(40, self._gui_update_loop)
 
     def _clear_charts(self):
         self.raw_inputs.clear()
