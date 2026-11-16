@@ -91,7 +91,7 @@ module sensor_filter_core #(
 
     // Saturated 12-bit output [-2048, 2047]
     wire signed [11:0] ma_sat = (ma_div > 14'sd2047)  ? 12'sd2047 :
-                                (ma_div < -14'sd2048) ? -12'sd2048 :
+                                (ma_div < -14'sd2048) ? 12'h800 :
                                 ma_div[11:0];
 
     // ------------------------------------------------------------------------
@@ -121,7 +121,7 @@ module sensor_filter_core #(
 
     // Saturated 12-bit output [-2048, 2047]
     wire signed [11:0] fir_sat = (fir_div > 18'sd2047)  ? 12'sd2047 :
-                                 (fir_div < -18'sd2048) ? -12'sd2048 :
+                                 (fir_div < -18'sd2048) ? 12'h800 :
                                  fir_div[11:0];
 
     // ------------------------------------------------------------------------
