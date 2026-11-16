@@ -1,6 +1,6 @@
 # ============================================================================
 # Quartus Settings File (QSF) for Terasic DE0-Nano (Cyclone IV E)
-# Device: EP4CE22F17C6N
+# Device: EP4CE22F17C6
 # IO Standard: 3.3-V LVTTL
 # Project: Topic 22 - Sensor Digital Filter (MA & FIR)
 # ============================================================================
@@ -15,28 +15,38 @@ set_global_assignment -name MAX_CORE_JUNCTION_TEMP 85
 set_global_assignment -name ERROR_CHECK_FREQUENCY_DIVISOR 1
 set_global_assignment -name STRATIX_DEVICE_IO_STANDARD "3.3-V LVTTL"
 
-# RTL Source Files
+# SDC Timing Constraints
 set_global_assignment -name SDC_FILE de0_nano.sdc
+
+# RTL Source Files
 set_global_assignment -name VERILOG_FILE rtl/sensor_filter_core.v
 set_global_assignment -name VERILOG_FILE rtl/rom_sensor_reader.v
 set_global_assignment -name VERILOG_FILE rtl/uart_tx.v
 set_global_assignment -name VERILOG_FILE rtl/uart_rx.v
-set_global_assignment -name VERILOG_FILE rtl/seg7_decoder.v
+set_global_assignment -name VERILOG_FILE rtl/seg7_3digit_controller.v
 set_global_assignment -name VERILOG_FILE rtl/top_de0_nano.v
 
-# Clock 50 MHz
+# ----------------------------------------------------------------------------
+# 1. On-board Clock 50 MHz
+# ----------------------------------------------------------------------------
 set_location_assignment PIN_R8 -to CLOCK_50
 
-# Push Buttons (Active-Low)
+# ----------------------------------------------------------------------------
+# 2. On-board Push Buttons (Active-Low)
+# ----------------------------------------------------------------------------
 set_location_assignment PIN_J15 -to KEY[0]
 set_location_assignment PIN_E1 -to KEY[1]
 
-# DIP Switches
+# ----------------------------------------------------------------------------
+# 3. On-board DIP Switches
+# ----------------------------------------------------------------------------
 set_location_assignment PIN_M1 -to SW[0]
 set_location_assignment PIN_T8 -to SW[1]
 set_location_assignment PIN_B9 -to SW[2]
 
-# On-board 8 Green LEDs (Active-High)
+# ----------------------------------------------------------------------------
+# 4. On-board 8 Green LEDs (Active-High)
+# ----------------------------------------------------------------------------
 set_location_assignment PIN_A15 -to LED[0]
 set_location_assignment PIN_A13 -to LED[1]
 set_location_assignment PIN_B13 -to LED[2]
@@ -46,18 +56,25 @@ set_location_assignment PIN_F3 -to LED[5]
 set_location_assignment PIN_B1 -to LED[6]
 set_location_assignment PIN_L3 -to LED[7]
 
-# Optional Expansion Pins on GPIO_0 (JP1 Header)
-# 7-Segment display module pins (if connected)
-set_location_assignment PIN_D3 -to gpio_hex[0]
-set_location_assignment PIN_C3 -to gpio_hex[1]
-set_location_assignment PIN_A2 -to gpio_hex[2]
-set_location_assignment PIN_A3 -to gpio_hex[3]
-set_location_assignment PIN_B3 -to gpio_hex[4]
-set_location_assignment PIN_B4 -to gpio_hex[5]
-set_location_assignment PIN_A4 -to gpio_hex[6]
+# ----------------------------------------------------------------------------
+# 5. External Peripherals via Header JP1 (GPIO-0)
+# ----------------------------------------------------------------------------
+# UART Interface
+set_location_assignment PIN_D3 -to UART_RX
+set_location_assignment PIN_C3 -to UART_TX
 
-# UART Serial pins (if USB-TTL module connected)
-set_location_assignment PIN_B5 -to gpio_uart_tx
-set_location_assignment PIN_A5 -to gpio_uart_rx
+# 7-Segment Segments a..g
+set_location_assignment PIN_A2 -to SEG[0]
+set_location_assignment PIN_A3 -to SEG[1]
+set_location_assignment PIN_B3 -to SEG[2]
+set_location_assignment PIN_B4 -to SEG[3]
+set_location_assignment PIN_A4 -to SEG[4]
+set_location_assignment PIN_B5 -to SEG[5]
+set_location_assignment PIN_A5 -to SEG[6]
+
+# 3-Digit Enables (DIG 1, DIG 2, DIG 3)
+set_location_assignment PIN_D5 -to DIG[2]
+set_location_assignment PIN_B6 -to DIG[1]
+set_location_assignment PIN_A6 -to DIG[0]
 
 set_global_assignment -name LAST_QUARTUS_VERSION "25.1std.0 Lite Edition"

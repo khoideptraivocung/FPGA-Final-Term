@@ -1,6 +1,6 @@
 // ============================================================================
 // Module: top_de0_nano
-// Board: Terasic DE0-Nano (Cyclone IV E EP4CE22F17C6N)
+// Board: Terasic DE0-Nano (Cyclone IV E EP4CE22F17C6)
 // Description: Top-level integration for Sensor Digital Filter (MA & FIR)
 // Peripherals on DE0-Nano:
 //   - CLOCK_50 : 50 MHz oscillator (PIN_R8)
@@ -10,29 +10,31 @@
 //   - SW[1]    : Source select (0: ROM, 1: UART RX) (PIN_T8)
 //   - SW[2]    : ROM Auto-stream enable (1: Stream at 1 kS/s) (PIN_B9)
 //   - LED[7:0] : On-board status and filter mode indicators (PIN_A15, etc.)
-// Expansion GPIO_0 (JP1 Header - Optional):
-//   - GPIO_0[6:0]: 7-segment display module (segments a..g)
-//   - GPIO_0[7]  : UART TX (Serial output to PC)
-//   - GPIO_0[8]  : UART RX (Serial input from PC/Sensor)
+// Expansion JP1 Header (GPIO-0):
+//   - UART_RX  : Serial input from external sensor/PC (PIN_D3, Pin 2)
+//   - UART_TX  : Serial output to PC (PIN_C3, Pin 4)
+//   - SEG[6:0] : 7-segment segments a..g (PIN_A2, PIN_A3, PIN_B3, PIN_B4, PIN_A4, PIN_B5, PIN_A5)
+//   - DIG[2:0] : 3-digit enables (PIN_D5, PIN_B6, PIN_A6)
 // ============================================================================
 
 module top_de0_nano (
-    // On-board Clock
+    // 1. On-board Clock 50 MHz
     input  wire        CLOCK_50,
     
-    // On-board Push Buttons (Active-Low)
+    // 2. On-board Push Buttons (Active-Low)
     input  wire [1:0]  KEY,
     
-    // On-board DIP Switches
+    // 3. On-board DIP Switches
     input  wire [2:0]  SW,
     
-    // On-board 8 Green LEDs (Active-High)
+    // 4. On-board 8 Green LEDs (Active-High)
     output wire [7:0]  LED,
     
-    // Optional Expansion Pins on GPIO_0 header (JP1)
-    output wire [6:0]  gpio_hex,    // Optional 7-segment display on GPIO_0[6:0]
-    output wire        gpio_uart_tx,// UART TX pin on GPIO_0[7]
-    input  wire        gpio_uart_rx // UART RX pin on GPIO_0[8]
+    // 5. External Peripherals via JP1 Header (GPIO-0)
+    input  wire        UART_RX,   // PIN_D3 (Pin 2 on JP1)
+    output wire        UART_TX,   // PIN_C3 (Pin 4 on JP1)
+    output wire [6:0]  SEG,       // PIN_A2..PIN_A5 (Pin 5..11 on JP1)
+    output wire [2:0]  DIG        // PIN_D5, PIN_B6, PIN_A6 (Pin 12..14 on JP1)
 );
 
     // ------------------------------------------------------------------------
@@ -80,16 +82,13 @@ module top_de0_nano (
     wire               uart_valid;
     wire signed [11:0] uart_data;
 
-    // Pull-up for RX if pin is floating
-    wire uart_rx_in = (gpio_uart_rx === 1'bz) ? 1'b1 : gpio_uart_rx;
-
     uart_rx #(
         .CLK_FREQ(50_000_000),
         .BAUD(115_200)
     ) u_uart_rx (
         .clk(CLOCK_50),
         .rst_n(rst_n),
-        .rx_pin(uart_rx_in),
+        .rx_pin(UART_RX),
         .sample_valid(uart_valid),
         .sample_out(uart_data)
     );
@@ -127,27 +126,22 @@ module top_de0_nano (
         .rst_n(rst_n),
         .tx_start(core_valid_out),
         .sample_in(core_data_out),
-        .tx_pin(gpio_uart_tx),
+        .tx_pin(UART_TX),
         .busy(uart_tx_busy)
     );
 
     // ------------------------------------------------------------------------
-    // 4. 7-Segment Decoder (Optional external module on GPIO_0)
+    // 4. 3-Digit 7-Segment Display Controller on JP1 Header
     // ------------------------------------------------------------------------
-    wire [6:0] hex0_wire;
-    wire [6:0] hex1_wire;
-    wire [6:0] hex2_wire;
-
-    seg7_decoder u_seg7 (
+    seg7_3digit_controller u_seg7 (
+        .clk(CLOCK_50),
+        .rst_n(rst_n),
         .filter_sel(filter_sel),
         .source_sel(source_sel),
         .valid_out(core_valid_out),
-        .hex0(hex0_wire),
-        .hex1(hex1_wire),
-        .hex2(hex2_wire)
+        .SEG(SEG),
+        .DIG(DIG)
     );
-
-    assign gpio_hex = hex0_wire; // 'A' (MA) hoặc 'F' (FIR)
 
     // ------------------------------------------------------------------------
     // 5. On-Board 8 LEDs Display (Active-High: 1 = ON)
