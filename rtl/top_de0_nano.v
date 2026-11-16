@@ -45,18 +45,37 @@ module top_de0_nano (
     wire source_sel = SW[1];  // 0: ROM nội, 1: UART RX ngoài
     wire rom_enable = SW[2];  // 1: Tự phát 1024 mẫu ROM ở 1.000 mẫu/giây
 
-    // Debounce / Edge detection on KEY[1] for single-step manual sample
-    reg key1_d1, key1_d2;
+    // ------------------------------------------------------------------------
+    // Debounce KEY[1] (Active-Low) with 20ms noise filter to avoid chatter
+    // 50 MHz * 20 ms = 1,000,000 clock cycles (20-bit counter)
+    // ------------------------------------------------------------------------
+    reg [19:0] key1_cnt;
+    reg        key1_clean;
+    reg        key1_clean_d;
+    wire       key1_press;
+
     always @(posedge CLOCK_50 or negedge rst_n) begin
         if (!rst_n) begin
-            key1_d1 <= 1'b1;
-            key1_d2 <= 1'b1;
+            key1_cnt     <= 20'd0;
+            key1_clean   <= 1'b1;
+            key1_clean_d <= 1'b1;
         end else begin
-            key1_d1 <= KEY[1];
-            key1_d2 <= key1_d1;
+            key1_clean_d <= key1_clean;
+            if (KEY[1] != key1_clean) begin
+                if (key1_cnt >= 20'd1_000_000) begin
+                    key1_clean <= KEY[1];
+                    key1_cnt   <= 20'd0;
+                end else begin
+                    key1_cnt   <= key1_cnt + 20'd1;
+                end
+            end else begin
+                key1_cnt <= 20'd0;
+            end
         end
     end
-    wire key1_press = (key1_d2 == 1'b1) && (key1_d1 == 1'b0);
+
+    // Single-cycle pulse on KEY[1] falling edge (button pressed)
+    assign key1_press = (key1_clean_d == 1'b1) && (key1_clean == 1'b0);
 
     // ------------------------------------------------------------------------
     // 1. Input Sources: ROM Reader & UART RX
@@ -146,13 +165,13 @@ module top_de0_nano (
     // ------------------------------------------------------------------------
     // 5. On-Board 8 LEDs Display (Active-High: 1 = ON)
     // ------------------------------------------------------------------------
-    // Pulse stretch for valid_out so it's clearly visible to human eye
+    // Pulse stretch for valid_out so it's clearly visible to human eye (200 ms flash)
     reg [23:0] pulse_stretch;
     always @(posedge CLOCK_50 or negedge rst_n) begin
         if (!rst_n) begin
             pulse_stretch <= 24'd0;
         end else if (core_valid_out) begin
-            pulse_stretch <= 24'd2_500_000; // ~50 ms flash at 50 MHz
+            pulse_stretch <= 24'd10_000_000; // ~200 ms bright flash at 50 MHz
         end else if (pulse_stretch > 24'd0) begin
             pulse_stretch <= pulse_stretch - 24'd1;
         end

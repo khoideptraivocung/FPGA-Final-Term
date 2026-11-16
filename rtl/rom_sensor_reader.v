@@ -25,11 +25,14 @@ module rom_sensor_reader #(
         $readmemh(MEM_FILE, rom_array);
     end
 
-    // Sample rate pacer counter
+    // Sample rate pacer counter for Auto-Stream mode (enable = 1)
     // 50 MHz / 1 kHz = 50,000 clock cycles per sample
     localparam integer TICKS_PER_SAMPLE = CLK_FREQ_HZ / SAMPLE_RATE_HZ;
     reg [31:0] pacer_cnt;
-    wire sample_pulse = (pacer_cnt == TICKS_PER_SAMPLE - 1) || single_step;
+    wire pacer_pulse = enable && (pacer_cnt >= TICKS_PER_SAMPLE - 1);
+
+    // Reading trigger: either from manual single_step (KEY1) or auto pacer (SW2)
+    wire step_trigger = single_step || pacer_pulse;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -37,19 +40,25 @@ module rom_sensor_reader #(
             rom_addr  <= 10'd0;
             rom_valid <= 1'b0;
             rom_data  <= 12'sd0;
-        end else if (enable) begin
-            if (sample_pulse) begin
+        end else begin
+            // Pacer counter advances when auto-streaming is enabled
+            if (enable) begin
+                if (pacer_cnt >= TICKS_PER_SAMPLE - 1)
+                    pacer_cnt <= 32'd0;
+                else
+                    pacer_cnt <= pacer_cnt + 32'd1;
+            end else begin
                 pacer_cnt <= 32'd0;
+            end
+
+            // Emit sample on either single_step pulse or pacer pulse
+            if (step_trigger) begin
                 rom_data  <= rom_array[rom_addr];
                 rom_valid <= 1'b1;
                 rom_addr  <= rom_addr + 10'd1; // Wrap around after 1023
             end else begin
-                pacer_cnt <= pacer_cnt + 32'd1;
                 rom_valid <= 1'b0;
             end
-        end else begin
-            pacer_cnt <= 32'd0;
-            rom_valid <= 1'b0;
         end
     end
 
